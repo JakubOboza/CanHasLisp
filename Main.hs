@@ -3,35 +3,48 @@
 -- TODO: Understand TokenParser.
 
 import Text.ParserCombinators.Parsec
-import Text.ParserCombinators.Parsec.Language (haskellDef)
-import qualified Text.ParserCombinators.Parsec.Token as P
 
 
 data SexList = SexSymbol String
     | SexString String
     | SexNumber Integer
-    | SexList   [SexList]
+    | SexList   [SexList] deriving (Show)
 
-instance Show SexList where
-    show (SexSymbol name) = name
-    show (SexString str) = "\"" ++ str ++ "\""
-    show (SexNumber num) = show num
-    show (SexList lst) = "(" ++ (unwords $ map show lst) ++ ")"
+-- instance Show SexList where
+--     show (SexSymbol name) = name
+--     show (SexString str) = "\"" ++ str ++ "\""
+--     show (SexNumber num) = show num
+--     show (SexList lst) = "(" ++ (unwords $ map show lst) ++ ")"
+
+runWith f p input
+        = case (parse p "" input) of
+            Left err -> error "PARSE"
+            Right x  -> f x
 
 eatWhiteShitP = many (oneOf "\r \n\t")
-
+symbolLetterP = char '+' <|> char '*' <|> letter
 symbolP = do
-              symbol <- many1 letter
+              symbol <- many1 symbolLetterP
               eatWhiteShitP
               return $ SexSymbol symbol
 stringP = do
             char '"'
-            str <- many letter                 
+            str <- many letter             
             char '"'
             eatWhiteShitP
             return $ SexString str
 
-exprP = symbolP <|> stringP <|> listP
+number  = do{ ds <- many1 digit
+            ; return (read ds)
+            }
+        <?> "number"
+
+numberP = do
+             num <- number
+             eatWhiteShitP
+             return $ SexNumber num
+
+exprP = numberP <|> symbolP <|> stringP <|> listP
 
 listP = do
             char '('
@@ -43,4 +56,16 @@ listP = do
 readP = do
             sex <- listP
             eof
-            return sex       
+            return sex
+
+operator :: String -> (Integer -> Integer -> Integer)
+operator "+" = (+)
+operator "-" = (-)
+operator "*" = (*)
+
+evalSex (SexNumber n) = n
+evalSex (SexList []) = error "EVALSEX"
+evalSex (SexList ((SexSymbol op) : first : rest)) = 
+        foldl (operator op) (evalSex first) (map evalSex rest)
+
+readEval = evalSex . runWith id readP
