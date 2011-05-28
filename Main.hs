@@ -5,8 +5,8 @@ data SexList = SexSymbol String
     | SexNumber Integer
     | SexList   [SexList]
 
-
-
-
-
-
+instance Show SexList where
+    show (SexSymbol name) = name
+    show (SexString str) = "\"" ++ str ++ "\""
+    show (SexNumber num) = show num
+    show (SexList lst) = "(" ++ (unwords $ map show lst) ++ ")"
