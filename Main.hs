@@ -10,6 +10,13 @@ data SexList = SexSymbol String
     | SexNumber Integer
     | SexList   [SexList] deriving (Show)
 
+-- functions layer
+data TopLevel = Function String Int Lisp
+              | TopExpr Lisp
+
+data Lisp = Apply [Int]
+          | Let Int Lisp
+
 -- instance Show SexList where
 --     show (SexSymbol name) = name
 --     show (SexString str) = "\"" ++ str ++ "\""
@@ -29,7 +36,7 @@ symbolP = do
               return $ SexSymbol symbol
 stringP = do
             char '"'
-            str <- many letter             
+            str <- many letter
             char '"'
             eatWhiteShitP
             return $ SexString str
@@ -65,7 +72,7 @@ operator "*" = (*)
 
 evalSex (SexNumber n) = n
 evalSex (SexList []) = error "EVALSEX"
-evalSex (SexList ((SexSymbol op) : first : rest)) = 
+evalSex (SexList ((SexSymbol op) : first : rest)) =
         foldl (operator op) (evalSex first) (map evalSex rest)
 
-readEval = evalSex . runWith id readP
+-- readEval = evalSex . runWith id readP
