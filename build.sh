@@ -1,0 +1,1 @@
+runhaskell Main.hs "(+ 9 1)"

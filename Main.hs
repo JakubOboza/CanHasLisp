@@ -1,78 +1,114 @@
--- 28/05/2011 CodeJam@Cambridge
--- TODO: make instance of Read, understand fully typeclasses.
--- TODO: Understand TokenParser.
+module Main where
 
-import Text.ParserCombinators.Parsec
+import Text.ParserCombinators.Parsec hiding (spaces)
+import System.Environment
+import Control.Monad
 
+data LispVal = Atom String
+             | List [LispVal]
+             | DottedList [LispVal] LispVal
+             | Number Integer
+             | String String
+             | Bool Bool
 
-data SexList = SexSymbol String
-    | SexString String
-    | SexNumber Integer
-    | SexList   [SexList] deriving (Show)
+instance Show LispVal where show = showVal
 
--- functions layer
-data TopLevel = Function String Int Lisp
-              | TopExpr Lisp
+symbol = oneOf "!$%&|*+-/:<=>?@^_~"
 
-data Lisp = Apply [Int]
-          | Let Int Lisp
+spaces :: Parser ()
+spaces = skipMany1 space
 
--- instance Show SexList where
---     show (SexSymbol name) = name
---     show (SexString str) = "\"" ++ str ++ "\""
---     show (SexNumber num) = show num
---     show (SexList lst) = "(" ++ (unwords $ map show lst) ++ ")"
+parseString :: Parser LispVal
+parseString = do char '"'
+                 x <- many (noneOf "\"")
+                 char '"'
+                 return $ String x
 
-runWith f p input
-        = case (parse p "" input) of
-            Left err -> error "PARSE"
-            Right x  -> f x
+parseAtom :: Parser LispVal
+parseAtom = do first <- letter <|> symbol
+               rest <- many (letter <|> digit <|> symbol)
+               let atom = [first] ++ rest
+               return $ case atom of
+                          "#t" -> Bool True
+                          "#f" -> Bool False
+                          otherwise -> Atom atom
 
-eatWhiteShitP = many (oneOf "\r \n\t")
-symbolLetterP = char '+' <|> char '*' <|> letter
-symbolP = do
-              symbol <- many1 symbolLetterP
-              eatWhiteShitP
-              return $ SexSymbol symbol
-stringP = do
-            char '"'
-            str <- many letter
-            char '"'
-            eatWhiteShitP
-            return $ SexString str
+parseNumber :: Parser LispVal
+parseNumber = liftM (Number . read) $ many1 digit
 
-number  = do{ ds <- many1 digit
-            ; return (read ds)
-            }
-        <?> "number"
+parseExpr :: Parser LispVal
+parseExpr = parseAtom
+        <|> parseString
+        <|> parseNumber
+        <|> parseQuoted
+        <|> do char '('
+               x <- (try parseList) <|> parseDottedList
+               char ')'
+               return x
 
-numberP = do
-             num <- number
-             eatWhiteShitP
-             return $ SexNumber num
+unwordsList :: [LispVal] -> String
+unwordsList = unwords . map showVal
 
-exprP = numberP <|> symbolP <|> stringP <|> listP
+showVal :: LispVal -> String
+showVal (String contents) = "\"" ++ contents ++ "\""
+showVal (Atom name) = name
+showVal (Number contents) = show contents
+showVal (Bool True) = "#t"
+showVal (Bool False) = "#f"
+showVal (List contents) = "(" ++ unwordsList contents ++ ")"
+showVal (DottedList head tail) = "(" ++ unwordsList head ++ " . " ++ showVal tail ++ ")"
 
-listP = do
-            char '('
-            expr <- many exprP
-            char ')'
-            eatWhiteShitP
-            return $ SexList expr
+parseList :: Parser LispVal
+parseList = liftM List $ sepBy parseExpr spaces
 
-readP = do
-            sex <- listP
-            eof
-            return sex
+parseDottedList :: Parser LispVal
+parseDottedList = do
+    head <- endBy parseExpr spaces
+    tail <- char '.' >> spaces >> parseExpr
+    return $ DottedList head tail
 
-operator :: String -> (Integer -> Integer -> Integer)
-operator "+" = (+)
-operator "-" = (-)
-operator "*" = (*)
+parseQuoted :: Parser LispVal
+parseQuoted = do
+    char '\''
+    x <- parseExpr
+    return $ List [Atom "quote", x]
 
-evalSex (SexNumber n) = n
-evalSex (SexList []) = error "EVALSEX"
-evalSex (SexList ((SexSymbol op) : first : rest)) =
-        foldl (operator op) (evalSex first) (map evalSex rest)
+eval :: LispVal -> LispVal
+eval val@(String _) = val
+eval val@(Number _) = val
+eval val@(Bool _) = val
+eval (List [Atom "quote", val]) = val
+eval (List (Atom func : args)) = apply func $ map eval args
 
--- readEval = evalSex . runWith id readP
+apply :: String -> [LispVal] -> LispVal
+apply func args = maybe (Bool False) ($ args) $ lookup func primitives
+
+primitives :: [(String, [LispVal] -> LispVal)]
+primitives = [("+", numericBinop (+)),
+              ("-", numericBinop (-)),
+              ("*", numericBinop (*)),
+              ("/", numericBinop div),
+              ("mod", numericBinop mod),
+              ("quotient", numericBinop quot),
+              ("remainder", numericBinop rem)]
+
+numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> LispVal
+numericBinop op params = Number $ foldl1 op $ map unpackNum params
+
+unpackNum :: LispVal -> Integer
+unpackNum (Number n) = n
+unpackNum (String n) = let parsed = reads n in
+                          if null parsed
+                            then 0
+                            else fst $ parsed !! 0
+unpackNum (List [n]) = unpackNum n
+unpackNum _ = 0
+
+readExpr :: String -> LispVal
+readExpr input = case parse parseExpr "lisp" input of
+    Left err -> String $ "No match: " ++ show err
+    Right val -> val
+
+main :: IO ()
+main = do getArgs >>= putStrLn . show . eval . readExpr . (!! 0)
+
